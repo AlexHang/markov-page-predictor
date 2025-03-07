@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markov Chain Page Prefetcher</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.5/babel.min.js"></script>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f5f5f5;
+      }
+      .app {
+        display: flex;
+        min-height: 100vh;
+      }
+      .sidebar {
+        width: 200px;
+        background-color: #2c3e50;
+        color: white;
+        padding: 20px 0;
+      }
+      .content {
+        flex: 1;
+        padding: 20px;
+      }
+      .nav-item {
+        padding: 10px 20px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+      }
+      .nav-item:hover {
+        background-color: #34495e;
+      }
+      .nav-item.active {
+        background-color: #3498db;
+      }
+      .page {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .page-header {
+        margin-top: 0;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 15px;
+        color: #2c3e50;
+      }
+      .card {
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        transition: transform 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      }
+      .card h3 {
+        margin-top: 0;
+      }
+      .debug-panel {
+        margin-top: 30px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+      }
+      .debug-panel h3 {
+        margin-top: 0;
+      }
+      .debug-panel pre {
+        background-color: #f1f1f1;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      .prediction-badge {
+        display: inline-block;
+        background-color: #e74c3c;
+        color: white;
+        border-radius: 50%;
+        width: 10px;
+        height: 10px;
+        margin-left: 8px;
+      }
+      .loading-indicator {
+        display: inline-block;
+        margin-left: 10px;
+        color: #3498db;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      // Markov Chain implementation
+      class MarkovChain {
+        constructor() {
+          this.transitions = {};
+          this.pageVisits = [];
+        }
+
+        addTransition(fromPage, toPage) {
+          if (!this.transitions[fromPage]) {
+            this.transitions[fromPage] = {};
+          }
+
+          if (!this.transitions[fromPage][toPage]) {
+            this.transitions[fromPage][toPage] = 0;
+          }
+
+          this.transitions[fromPage][toPage]++;
+          this.pageVisits.push({
+            from: fromPage,
+            to: toPage,
+            timestamp: Date.now(),
+          });
+        }
+
+        predictNextPage(currentPage) {
+          if (!this.transitions[currentPage]) {
+            return null;
+          }
+
+          // Find the most likely next page
+          let maxCount = 0;
+          let predictedPage = null;
+
+          for (const nextPage in this.transitions[currentPage]) {
+            const count = this.transitions[currentPage][nextPage];
+            if (count > maxCount) {
+              maxCount = count;
+              predictedPage = nextPage;
+            }
+          }
+
+          return predictedPage;
+        }
+
+        getProbabilities(currentPage) {
+          if (!this.transitions[currentPage]) {
+            return {};
+          }
+
+          const total = Object.values(this.transitions[currentPage]).reduce(
+            (sum, count) => sum + count,
+            0
+          );
+          const probabilities = {};
+
+          for (const nextPage in this.transitions[currentPage]) {
+            probabilities[nextPage] =
+              this.transitions[currentPage][nextPage] / total;
+          }
+
+          return probabilities;
+        }
+
+        getTransitionMatrix() {
+          return this.transitions;
+        }
+
+        getPageVisits() {
+          return this.pageVisits;
+        }
+      }
+
+      // Cache manager for prefetched data
+      class CacheManager {
+        constructor() {
+          this.cache = {};
+        }
+
+        setData(key, data) {
+          this.cache[key] = {
+            data,
+            timestamp: Date.now(),
+          };
+        }
+
+        getData(key) {
+          return this.cache[key] ? this.cache[key].data : null;
+        }
+
+        hasData(key) {
+          return !!this.cache[key];
+        }
+
+        clearCache() {
+          this.cache = {};
+        }
+
+        getCache() {
+          return this.cache;
+        }
+      }
+
+      // Data fetching functions for different pages
+      const apiFunctions = {
+        users: () =>
+          fetch("https://jsonplaceholder.typicode.com/users").then((res) =>
+            res.json()
+          ),
+        posts: () =>
+          fetch("https://jsonplaceholder.typicode.com/posts?_limit=5").then(
+            (res) => res.json()
+          ),
+        comments: () =>
+          fetch("https://jsonplaceholder.typicode.com/comments?_limit=5").then(
+            (res) => res.json()
+          ),
+        photos: () =>
+          fetch("https://jsonplaceholder.typicode.com/photos?_limit=5").then(
+            (res) => res.json()
+          ),
+        todos: () =>
+          fetch("https://jsonplaceholder.typicode.com/todos?_limit=5").then(
+            (res) => res.json()
+          ),
+        albums: () =>
+          fetch("https://jsonplaceholder.typicode.com/albums?_limit=5").then(
+            (res) => res.json()
+          ),
+      };
+
+      // helper to store time taken to load each page in an array, per each iteration
+      class TimeTracker {
+        constructor() {
+          this.timeTaken = [];
+        }
+
+        addTime(page, time) {
+          this.timeTaken.push({ page, time });
+        }
+
+        getTime() {
+          return this.timeTaken;
+        }
+      }
+
+      // Page components
+      const Users = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Users</h2>
+          {data ? (
+            data.map((user) => (
+              <div className="card" key={user?.id}>
+                <h3>{user?.name}</h3>
+                <p>Email: {user?.email}</p>
+                <p>Company: {user?.company?.name}</p>
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      const Posts = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Posts</h2>
+          {data ? (
+            data.map((post) => (
+              <div className="card" key={post.id}>
+                <h3>{post.title}</h3>
+                <p>{post.body}</p>
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      const Comments = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Comments</h2>
+          {data ? (
+            data.map((comment) => (
+              <div className="card" key={comment.id}>
+                <h3>{comment.name}</h3>
+                <p>Email: {comment.email}</p>
+                <p>{comment.body}</p>
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      const Photos = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Photos</h2>
+          {data ? (
+            data.map((photo) => (
+              <div className="card" key={photo.id}>
+                <h3>{photo.title}</h3>
+                <img src={photo.thumbnailUrl} alt={photo.title} />
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      const Todos = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Todos</h2>
+          {data ? (
+            data.map((todo) => (
+              <div className="card" key={todo.id}>
+                <h3
+                  style={{
+                    textDecoration: todo.completed ? "line-through" : "none",
+                  }}
+                >
+                  {todo.title}
+                </h3>
+                <p>Status: {todo.completed ? "Completed" : "Pending"}</p>
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      const Albums = ({ data }) => (
+        <div className="page">
+          <h2 className="page-header">Albums</h2>
+          {data ? (
+            data.map((album) => (
+              <div className="card" key={album.id}>
+                <h3>{album.title}</h3>
+                <p>Album ID: {album.id}</p>
+              </div>
+            ))
+          ) : (
+            <p>Loading...</p>
+          )}
+        </div>
+      );
+
+      // Main App Component
+      const App = () => {
+        const [currentPage, setCurrentPage] = React.useState("users");
+        const [pageData, setPageData] = React.useState(null);
+        const [loading, setLoading] = React.useState(false);
+        const [loadTime, setLoadTime] = React.useState(null);
+        const [markov] = React.useState(new MarkovChain());
+        const [cache] = React.useState(new CacheManager());
+        const [timeTracker] = React.useState(new TimeTracker());
+        const [predictedPage, setPredictedPage] = React.useState(null);
+        const [prefetching, setPrefetching] = React.useState(false);
+        const [clickTimestamp, setClickTimestamp] = React.useState(null);
+        const [previousPage, setPreviousPage] = React.useState(null);
+        const [debugVisible, setDebugVisible] = React.useState(true);
+
+        // Available pages
+        const pages = {
+          users: Users,
+          posts: Posts,
+          comments: Comments,
+          photos: Photos,
+          todos: Todos,
+          albums: Albums,
+        };
+
+        // Fetch data for a page
+        const fetchData = async (pageName) => {
+          try {
+            if (cache.hasData(pageName)) {
+              console.log(`Using cached data for ${pageName}`);
+              return cache.getData(pageName);
+            }
+
+            const data = await apiFunctions[pageName]();
+            cache.setData(pageName, data);
+            return data;
+          } catch (error) {
+            console.error(`Error fetching data for ${pageName}:`, error);
+            return null;
+          }
+        };
+
+        // Handle page navigation
+        const navigateTo = async (pageName) => {
+          const clickTime = Date.now();
+          setClickTimestamp(clickTime);
+          // console.log(`Navigation click at: ${clickTime}`);
+
+          setLoading(true);
+
+          setPreviousPage(currentPage);
+          setCurrentPage(pageName);
+
+          // Fetch data (or use cached data)
+          console.log(predictedPage);
+          const data = await fetchData(pageName);
+          setPageData(data);
+
+          const loadCompleteTime = Date.now();
+          // console.log(`Page load complete at: ${loadCompleteTime}`);
+
+          const timeDiff = loadCompleteTime - clickTime;
+          console.log(`Time difference: ${timeDiff}ms ${pageName}`);
+          timeTracker.addTime(pageName, timeDiff);
+          console.log(timeTracker.getTime());
+          setLoadTime(timeDiff);
+
+          setLoading(false);
+          // Record the transition in the Markov chain
+          if (currentPage) {
+            markov.addTransition(currentPage, pageName);
+          }
+          // Predict next page after navigation
+          const prediction = markov.predictNextPage(pageName);
+          setPredictedPage(prediction);
+
+          if (prediction) {
+            cache.clearCache();
+            console.log(`Predicting next page: ${prediction}`);
+            prefetchData(prediction);
+          }
+        };
+
+        // Prefetch data for predicted page
+        const prefetchData = async (pageName) => {
+          setPrefetching(true);
+          console.log(`Prefetching data for predicted page: ${pageName}`);
+          await fetchData(pageName);
+          setPrefetching(false);
+        };
+
+        // Initial load
+        React.useEffect(() => {
+          navigateTo("posts");
+        }, []);
+
+        // Render current page component
+        const CurrentPageComponent = pages[currentPage];
+
+        return (
+          <div className="app">
+            <div className="sidebar">
+              {Object.keys(pages).map((page) => (
+                <div
+                  key={page}
+                  className={`nav-item ${currentPage === page ? "active" : ""}`}
+                  onClick={() => navigateTo(page)}
+                >
+                  {page}
+                  {predictedPage === page && (
+                    <span
+                      className="prediction-badge"
+                      title="Predicted next page"
+                    ></span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="content">
+              <CurrentPageComponent data={pageData} />
+
+              {loading && <div className="loading-indicator">Loading...</div>}
+
+              {prefetching && (
+                <div style={{ marginTop: "10px", color: "#7f8c8d" }}>
+                  Prefetching data for predicted page: {predictedPage}
+                </div>
+              )}
+
+              {loadTime !== null && (
+                <div style={{ marginTop: "15px", fontWeight: "bold" }}>
+                  Page load time: {loadTime}ms
+                  {cache.hasData(currentPage) &&
+                    cache.getData(currentPage) === pageData && (
+                      <span style={{ color: "green", marginLeft: "10px" }}>
+                        (Data was pre-fetched)
+                      </span>
+                    )}
+                </div>
+              )}
+
+              {debugVisible && (
+                <div className="debug-panel">
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <h3>Debug Information</h3>
+                    <button onClick={() => setDebugVisible(false)}>Hide</button>
+                  </div>
+
+                  <h4>Markov Chain Transition Matrix</h4>
+                  <pre>
+                    {JSON.stringify(markov.getTransitionMatrix(), null, 2)}
+                  </pre>
+
+                  {previousPage && (
+                    <>
+                      <h4>Probabilities from previous page</h4>
+                      <pre>
+                        {JSON.stringify(
+                          markov.getProbabilities(previousPage),
+                          null,
+                          2
+                        )}
+                      </pre>
+                    </>
+                  )}
+
+                  <h4>Cache Status</h4>
+                  <pre>
+                    {JSON.stringify(
+                      Object.keys(cache.getCache()).reduce((acc, key) => {
+                        acc[key] = {
+                          isCached: true,
+                          cachedAt: new Date(
+                            cache.getCache()[key].timestamp
+                          ).toLocaleTimeString(),
+                        };
+                        return acc;
+                      }, {}),
+                      null,
+                      2
+                    )}
+                  </pre>
+
+                  <h4>Recent Page Visits</h4>
+                  <pre>
+                    {JSON.stringify(
+                      markov
+                        .getPageVisits()
+                        .slice(-5)
+                        .map((visit) => ({
+                          from: visit.from,
+                          to: visit.to,
+                          at: new Date(visit.timestamp).toLocaleTimeString(),
+                        })),
+                      null,
+                      2
+                    )}
+                  </pre>
+                </div>
+              )}
+
+              {!debugVisible && (
+                <button
+                  style={{ marginTop: "15px" }}
+                  onClick={() => setDebugVisible(true)}
+                >
+                  Show Debug Panel
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("root"));
+    </script>
+  </body>
+</html>
