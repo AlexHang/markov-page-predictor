@@ -106,6 +106,7 @@
         constructor() {
           this.transitions = {};
           this.pageVisits = [];
+          this.allPages = [];
         }
 
         addTransition(fromPage, toPage) {
@@ -123,6 +124,13 @@
             to: toPage,
             timestamp: Date.now(),
           });
+          // Keep track of all pages we've seen
+          if (!this.allPages.includes(fromPage)) {
+            this.allPages.push(fromPage);
+          }
+          if (!this.allPages.includes(toPage)) {
+            this.allPages.push(toPage);
+          }
         }
 
         predictNextPage(currentPage) {
@@ -171,6 +179,10 @@
         getPageVisits() {
           return this.pageVisits;
         }
+
+        getAllPages() {
+          return this.allPages?.sort();
+        }
       }
 
       // Cache manager for prefetched data
@@ -202,6 +214,141 @@
           return this.cache;
         }
       }
+
+      const MarkovMatrix = ({ markov, title }) => {
+        const allPages = markov.getAllPages();
+        const transitions = markov.getTransitionMatrix();
+
+        // Generate raw count matrix
+        const getCountMatrix = () => {
+          const matrix = [];
+
+          for (const fromPage of allPages) {
+            const row = {};
+            row.fromPage = fromPage;
+
+            for (const toPage of allPages) {
+              if (transitions[fromPage] && transitions[fromPage][toPage]) {
+                row[toPage] = transitions[fromPage][toPage];
+              } else {
+                row[toPage] = 0;
+              }
+            }
+
+            matrix.push(row);
+          }
+
+          return matrix;
+        };
+
+        // Generate probability matrix
+        const getProbabilityMatrix = () => {
+          const matrix = [];
+
+          for (const fromPage of allPages) {
+            const row = {};
+            row.fromPage = fromPage;
+
+            const total = Object.values(transitions[fromPage] || {}).reduce(
+              (sum, count) => sum + count,
+              0
+            );
+
+            for (const toPage of allPages) {
+              if (
+                transitions[fromPage] &&
+                transitions[fromPage][toPage] &&
+                total > 0
+              ) {
+                row[toPage] = (transitions[fromPage][toPage] / total).toFixed(
+                  2
+                );
+              } else {
+                row[toPage] = 0;
+              }
+            }
+
+            matrix.push(row);
+          }
+
+          return matrix;
+        };
+
+        // Find the highest probability in each row
+        const getHighestInRow = (row) => {
+          let highest = 0;
+          let highestPage = null;
+
+          for (const page of allPages) {
+            const value = parseFloat(row[page]);
+            if (value > highest) {
+              highest = value;
+              highestPage = page;
+            }
+          }
+
+          return highestPage;
+        };
+
+        const countMatrix = getCountMatrix();
+        const probabilityMatrix = getProbabilityMatrix();
+
+        if (allPages.length === 0) {
+          return <div>No transitions recorded yet.</div>;
+        }
+
+        return (
+          <div>
+            <h4>{title}</h4>
+            <div style={{ overflowX: "auto" }}>
+              <table className="matrix-table">
+                <thead>
+                  <tr>
+                    <th>From \ To</th>
+                    {allPages.map((page) => (
+                      <th key={page}>{page}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {title.includes("Probability")
+                    ? probabilityMatrix.map((row, i) => (
+                        <tr key={i}>
+                          <td>
+                            <strong>{row.fromPage}</strong>
+                          </td>
+                          {allPages.map((page) => {
+                            const isHighest =
+                              getHighestInRow(row) === page && row[page] > 0;
+                            return (
+                              <td
+                                key={page}
+                                className={
+                                  isHighest ? "highest-probability" : ""
+                                }
+                              >
+                                {row[page]}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    : countMatrix.map((row, i) => (
+                        <tr key={i}>
+                          <td>
+                            <strong>{row.fromPage}</strong>
+                          </td>
+                          {allPages.map((page) => (
+                            <td key={page}>{row[page]}</td>
+                          ))}
+                        </tr>
+                      ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      };
 
       // Data fetching functions for different pages
       const apiFunctions = {
@@ -507,7 +654,14 @@
 
                   <h4>Markov Chain Transition Matrix</h4>
                   <pre>
-                    {JSON.stringify(markov.getTransitionMatrix(), null, 2)}
+                    <MarkovMatrix
+                      markov={markov}
+                      title="Transition Matrix (Raw Counts)"
+                    />
+                    <MarkovMatrix
+                      markov={markov}
+                      title="Transition Matrix (Probability)"
+                    />
                   </pre>
 
                   {previousPage && (
