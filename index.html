@@ -101,7 +101,6 @@
     <div id="root"></div>
 
     <script src="./init-sw.js"></script>
-
     <script type="text/babel">
       // Markov Chain implementation
       class MarkovChain {
@@ -552,6 +551,7 @@
 
           setPreviousPage(currentPage);
           setCurrentPage(pageName);
+          document.cookie = `current-page=${pageName}`;
 
           // Fetch data (or use cached data)
           console.log(predictedPage);
